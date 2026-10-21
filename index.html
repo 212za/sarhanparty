@@ -356,6 +356,32 @@
             background: rgba(15, 23, 42, 0.6);
             border-radius: 6px;
         }
+
+        /* أنماط ميزة إضافة الأصوات داخل الموقع */
+        .sound-upload-box {
+            border: 2px dashed var(--border-color);
+            border-radius: 12px;
+            padding: 14px;
+            margin-top: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+        .sounds-list {
+            max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin: 12px 0;
+            text-align: inherit;
+        }
+        .sound-row {
+            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(255,255,255,0.05); padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color);
+            font-size: 0.85rem;
+        }
+        .sound-row .sound-meta { color: var(--text-secondary); font-size: 0.72rem; }
+        .upload-progress-text { font-size: 0.8rem; color: var(--gold); margin-top: 6px; display: none; }
     </style>
 </head>
 <body>
@@ -366,6 +392,7 @@
             <span>سرحان بارتي</span>
         </div>
         <div class="settings-btns">
+            <button class="icon-btn" onclick="openSoundsModal()" title="إدارة أصوات اللعبة"><i class="fa-solid fa-music"></i> <span data-key="btn_sounds">الأصوات</span></button>
             <button class="icon-btn" onclick="openFriendsModal()"><i class="fa-solid fa-user-group"></i> <span data-key="btn_friends">الأصدقاء</span></button>
             <button class="icon-btn" onclick="toggleLanguage()"><i class="fa-solid fa-globe"></i> <span id="lang-btn-text">EN</span></button>
             <button class="icon-btn" onclick="toggleTheme()"><i class="fa-solid fa-moon"></i></button>
@@ -588,6 +615,34 @@
             </div>
 
             <button class="btn-primary" style="background: #ef4444; margin-top: 15px;" onclick="closeFriendsModal()" data-key="btn_close">إغلاق</button>
+        </div>
+    </div>
+
+    <!-- Modal: Manage Game Sounds (Add custom sounds from within the site) -->
+    <div class="modal" id="sounds-modal">
+        <div class="modal-content">
+            <h3 style="color: var(--accent-color); margin-bottom: 10px;"><i class="fa-solid fa-music"></i> <span data-key="sounds_title">أصوات اللعبة</span></h3>
+            <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 10px;" data-key="sounds_desc">ارفع أي مقطع صوتي قصير مباشرة من هنا، وهيتضاف لقائمة أصوات اللعبة للجميع فوراً.</p>
+
+            <div class="form-group">
+                <input type="text" id="new-sound-name" placeholder="اسم المقطع الصوتي..." style="font-size: 0.9rem;">
+            </div>
+            <div class="sound-upload-box" onclick="document.getElementById('new-sound-file').click()">
+                <i class="fa-solid fa-file-audio"></i>
+                <span data-key="upload_sound_prompt">اضغط لاختيار ملف صوتي (mp3/wav)</span>
+                <input type="file" id="new-sound-file" accept="audio/*" style="display:none;" onchange="handleSoundFileSelected(this)">
+            </div>
+            <div id="selected-sound-filename" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px;"></div>
+            <div id="upload-progress-text" class="upload-progress-text" data-key="uploading_sound">جاري الرفع...</div>
+
+            <button class="btn-primary" style="margin-top: 10px;" onclick="submitNewSound()" data-key="btn_upload_sound">إضافة الصوت للعبة</button>
+
+            <div style="border-top: 1px solid var(--border-color); margin-top: 15px; padding-top: 10px;">
+                <div style="font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; text-align: right;" data-key="custom_sounds_label">الأصوات المضافة من اللاعبين:</div>
+                <div class="sounds-list" id="custom-sounds-list"></div>
+            </div>
+
+            <button class="btn-primary" style="background: #ef4444; margin-top: 10px;" onclick="closeSoundsModal()" data-key="btn_close">إغلاق</button>
         </div>
     </div>
 
@@ -853,6 +908,34 @@
             });
         };
 
+        // ==== ميزة إضافة الأصوات داخل الموقع (بدون الحاجة لرفعها على GitHub) ====
+        // كل صوت مخصّص بيتخزن في Firebase كـ base64 عشان يكون متاح فوراً لكل اللاعبين
+        window.customSoundsList = [];
+        onValue(ref(database, 'custom_sounds'), (snapshot) => {
+            const data = snapshot.val();
+            const customArr = data ? Object.keys(data).map(key => ({ ...data[key], firebaseKey: key })) : [];
+            window.customSoundsList = customArr;
+            // دمج الأصوات الأساسية مع الأصوات المضافة من اللاعبين في قائمة واحدة تستخدمها اللعبة
+            window.realSoundList = [...window.builtInSoundList, ...customArr];
+            if (window.renderCustomSoundsList) window.renderCustomSoundsList();
+        });
+
+        window.addCustomSoundToFirebase = async function(name, base64Src) {
+            const newRef = push(ref(database, 'custom_sounds'));
+            await set(newRef, {
+                id: newRef.key,
+                name: name,
+                src: base64Src,
+                addedBy: window.username || 'لاعب',
+                addedByDeviceId: window.myDeviceId,
+                time: Date.now()
+            });
+        };
+
+        window.deleteCustomSoundFromFirebase = function(firebaseKey) {
+            remove(ref(database, 'custom_sounds/' + firebaseKey));
+        };
+
         function listenToRoom(roomCode) {
             onValue(ref(database, `rooms/${roomCode}`), (snapshot) => {
                 const roomData = snapshot.val();
@@ -864,7 +947,7 @@
                 }
 
                 if (roomData.selectedSoundIndices) {
-                    window.selectedSoundsForGame = roomData.selectedSoundIndices.map(idx => window.realSoundList[idx]);
+                    window.selectedSoundsForGame = roomData.selectedSoundIndices.map(idx => window.realSoundList[idx]).filter(Boolean);
                 }
 
                 if (roomData.players) {
@@ -966,7 +1049,7 @@
                 playing_audio: "🔊 جاري تشغيل الصوت...",
                 waiting_audio_next: "⏳ انتهاء الصوت.. انتظار ثانية واحدة...",
                 done_stage_audio: "✅ اكتملت جميع الأصوات للمرحلة الحالية!",
-                match_score: "نسبة مطابقة شريط التردد شكلياً",
+                match_score: "نسبة التطابق الصوتي",
                 status_online: "متصل الآن",
                 no_sound_txt: "NO SOUND (لم يتم كشف صوت)",
                 type_public: "عامة",
@@ -978,7 +1061,14 @@
                 friends_title: "قائمة الأصدقاء",
                 btn_add_friend: "إضافة صديق",
                 btn_back: "رجوع",
-                btn_close: "إغلاق"
+                btn_close: "إغلاق",
+                btn_sounds: "الأصوات",
+                sounds_title: "أصوات اللعبة",
+                sounds_desc: "ارفع أي مقطع صوتي قصير مباشرة من هنا، وهيتضاف لقائمة أصوات اللعبة للجميع فوراً.",
+                upload_sound_prompt: "اضغط لاختيار ملف صوتي (mp3/wav)",
+                btn_upload_sound: "إضافة الصوت للعبة",
+                custom_sounds_label: "الأصوات المضافة من اللاعبين:",
+                uploading_sound: "جاري الرفع..."
             },
             en: {
                 welcome: "Login",
@@ -1016,7 +1106,7 @@
                 playing_audio: "🔊 Playing Audio...",
                 waiting_audio_next: "⏳ Finished audio.. Waiting 1 sec...",
                 done_stage_audio: "✅ All recordings played for this stage!",
-                match_score: "Visual Waveform Match Score",
+                match_score: "Voice Match Score",
                 status_online: "Online Now",
                 no_sound_txt: "NO SOUND (No Audio Detected)",
                 type_public: "Public",
@@ -1028,7 +1118,14 @@
                 friends_title: "Friends List",
                 btn_add_friend: "Add Friend",
                 btn_back: "Back",
-                btn_close: "Close"
+                btn_close: "Close",
+                btn_sounds: "Sounds",
+                sounds_title: "Game Sounds",
+                sounds_desc: "Upload any short audio clip here, it's instantly added to the game's sound pool for everyone.",
+                upload_sound_prompt: "Tap to choose an audio file (mp3/wav)",
+                btn_upload_sound: "Add Sound to Game",
+                custom_sounds_label: "Sounds added by players:",
+                uploading_sound: "Uploading..."
             }
         };
 
@@ -1056,6 +1153,8 @@
             { id: 15, name: "صرخة: Scream 😱", src: "./universfield-male-falling-scream-278-44325.mp3" }
         ];
 
+        // القائمة الأساسية الثابتة (ملفات الموقع) منفصلة عن الأصوات المخصّصة القادمة من Firebase
+        window.builtInSoundList = realSoundList;
         window.realSoundList = realSoundList;
         let selectedSoundsForGame = [];
 
@@ -1083,6 +1182,7 @@
         let isJoiningOrCreating = false;
         let selectedRoomType = 'public';
         let currentActiveFriendId = null;
+        let pendingSoundFileBase64 = null;
         window.myTotalScore = 0;
 
         // التاريخ للتنقل بالزر السهم
@@ -1173,6 +1273,7 @@
             document.getElementById('username').placeholder = t.input_username_ph;
             document.getElementById('room-code-input').placeholder = t.input_room_ph;
             document.getElementById('chat-input').placeholder = t.chat_ph;
+            if (window.renderCustomSoundsList) window.renderCustomSoundsList();
         }
 
         function selectAv(el, src) {
@@ -1592,10 +1693,13 @@
                 currentAudioObject = new Audio(currentSound.src);
                 currentAudioObject.play().catch(err => console.error("Audio error:", err));
 
-                // التعديل الثاني: استخراج ورسم شريط التردد للمقطع الأصلي فور التشغيل
+                // رسم شريط التردد للمقطع الأصلي فور التشغيل (بصري فقط)
                 document.getElementById('target-waveform-box').style.display = 'block';
-                const wfData = await extractWaveformDataFromUrl(currentSound.src);
-                drawWaveform('target-waveform-canvas', wfData, '#8b5cf6');
+                try {
+                    const decoded = await decodeAudioSource(currentSound.src);
+                    const wfData = computeWaveformBars(decoded.channelData);
+                    drawWaveform('target-waveform-canvas', wfData, '#8b5cf6');
+                } catch(e) { console.warn("Waveform draw error:", e); }
             }
         }
 
@@ -1614,62 +1718,227 @@
             return channelData.subarray(start, end + 1);
         }
 
-        // استخراج مصفوفة الترددات البصرية من رابط ملف صوتي
-        async function extractWaveformDataFromUrl(url) {
-            try {
-                const response = await fetch(url);
-                const arrayBuf = await response.arrayBuffer();
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
-                const rawData = audioBuffer.getChannelData(0);
-                const trimmed = trimAudioSilence(rawData);
-                const barsCount = 60;
-                const samplesPerBar = Math.floor(trimmed.length / barsCount);
-                const waveform = [];
+        // فك تشفير الصوت (من رابط أو Blob) وإرجاع بيانات القناة الصوتية الخام + معدل العينات
+        async function decodeAudioSource(source) {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            let arrayBuf;
+            if (source instanceof Blob) {
+                arrayBuf = await source.arrayBuffer();
+            } else {
+                const response = await fetch(source);
+                arrayBuf = await response.arrayBuffer();
+            }
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
+            const rawData = audioBuffer.getChannelData(0);
+            const trimmed = trimAudioSilence(rawData);
+            const sampleRate = audioBuffer.sampleRate;
+            audioCtx.close();
+            return { channelData: trimmed, sampleRate };
+        }
 
-                for (let i = 0; i < barsCount; i++) {
-                    let sum = 0;
-                    for (let j = 0; j < samplesPerBar; j++) {
-                        sum += Math.abs(trimmed[i * samplesPerBar + j] || 0);
-                    }
-                    waveform.push(sum / samplesPerBar);
+        // حساب أعمدة الموجة الصوتية البصرية (للرسم فقط، لا تستخدم في حساب النتيجة)
+        function computeWaveformBars(channelData, barsCount = 60) {
+            const samplesPerBar = Math.max(1, Math.floor(channelData.length / barsCount));
+            const waveform = [];
+            for (let i = 0; i < barsCount; i++) {
+                let sum = 0;
+                for (let j = 0; j < samplesPerBar; j++) {
+                    sum += Math.abs(channelData[i * samplesPerBar + j] || 0);
                 }
+                waveform.push(sum / samplesPerBar);
+            }
+            const maxVal = Math.max(...waveform) || 1;
+            return waveform.map(v => v / maxVal);
+        }
 
-                // تطبيع القيم من 0 إلى 1
-                const maxVal = Math.max(...waveform) || 1;
-                audioCtx.close();
-                return waveform.map(v => v / maxVal);
-            } catch(e) {
-                console.warn("Waveform extraction error:", e);
-                return new Array(60).fill(0.2);
+        // ============== خوارزمية تحليل صوتي محسّنة (MFCC + DTW) ==============
+        // بديل عن مقارنة "شكل" الموجة الصوتية البسيطة: دي بتحلل البصمة الترددية
+        // الحقيقية للصوت (زي الخوارزميات المستخدمة في التعرف على الكلام) وتقارن
+        // التسلسل الزمني للصوتين حتى لو اختلف التوقيت بينهم باستخدام Dynamic Time Warping.
+
+        function hammingWindow(n, N) {
+            return 0.54 - 0.46 * Math.cos((2 * Math.PI * n) / (N - 1));
+        }
+
+        // FFT تكراري (Radix-2 Cooley-Tukey)، الحجم لازم يكون قوة لـ 2
+        function fft(re, im) {
+            const n = re.length;
+            for (let i = 1, j = 0; i < n; i++) {
+                let bit = n >> 1;
+                for (; j & bit; bit >>= 1) j ^= bit;
+                j ^= bit;
+                if (i < j) {
+                    [re[i], re[j]] = [re[j], re[i]];
+                    [im[i], im[j]] = [im[j], im[i]];
+                }
+            }
+            for (let len = 2; len <= n; len <<= 1) {
+                const ang = (-2 * Math.PI) / len;
+                const wr = Math.cos(ang), wi = Math.sin(ang);
+                for (let i = 0; i < n; i += len) {
+                    let curWr = 1, curWi = 0;
+                    for (let j = 0; j < len / 2; j++) {
+                        const ur = re[i + j], ui = im[i + j];
+                        const vr = re[i + j + len / 2] * curWr - im[i + j + len / 2] * curWi;
+                        const vi = re[i + j + len / 2] * curWi + im[i + j + len / 2] * curWr;
+                        re[i + j] = ur + vr; im[i + j] = ui + vi;
+                        re[i + j + len / 2] = ur - vr; im[i + j + len / 2] = ui - vi;
+                        const nWr = curWr * wr - curWi * wi;
+                        const nWi = curWr * wi + curWi * wr;
+                        curWr = nWr; curWi = nWi;
+                    }
+                }
             }
         }
 
-        // استخراج مصفوفة الترددات من Blob بصوت المسجل
-        async function extractWaveformDataFromBlob(recordedBlob) {
-            try {
-                const arrayBuf = await recordedBlob.arrayBuffer();
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
-                const rawData = audioBuffer.getChannelData(0);
-                const trimmed = trimAudioSilence(rawData);
-                const barsCount = 60;
-                const samplesPerBar = Math.floor(trimmed.length / barsCount);
-                const waveform = [];
+        function hzToMel(hz) { return 2595 * Math.log10(1 + hz / 700); }
+        function melToHz(mel) { return 700 * (Math.pow(10, mel / 2595) - 1); }
 
-                for (let i = 0; i < barsCount; i++) {
+        function createMelFilterbank(numFilters, fftSize, sampleRate) {
+            const lowMel = hzToMel(0);
+            const highMel = hzToMel(sampleRate / 2);
+            const melPoints = [];
+            for (let i = 0; i < numFilters + 2; i++) melPoints.push(lowMel + ((highMel - lowMel) * i) / (numFilters + 1));
+            const hzPoints = melPoints.map(melToHz);
+            const bin = hzPoints.map(hz => Math.floor(((fftSize + 1) * hz) / sampleRate));
+            const filters = [];
+            for (let m = 1; m <= numFilters; m++) {
+                const filter = new Float64Array(fftSize / 2 + 1);
+                for (let k = bin[m - 1]; k < bin[m]; k++) {
+                    if (bin[m] !== bin[m - 1]) filter[k] = (k - bin[m - 1]) / (bin[m] - bin[m - 1]);
+                }
+                for (let k = bin[m]; k < bin[m + 1]; k++) {
+                    if (bin[m + 1] !== bin[m]) filter[k] = (bin[m + 1] - k) / (bin[m + 1] - bin[m]);
+                }
+                filters.push(filter);
+            }
+            return filters;
+        }
+
+        function dct(input, numCoeffs) {
+            const N = input.length;
+            const output = new Float64Array(numCoeffs);
+            for (let k = 0; k < numCoeffs; k++) {
+                let sum = 0;
+                for (let n = 0; n < N; n++) sum += input[n] * Math.cos((Math.PI / N) * (n + 0.5) * k);
+                output[k] = sum;
+            }
+            return output;
+        }
+
+        // استخراج معاملات MFCC من إشارة صوتية (مصفوفة من المتجهات، متجه لكل إطار زمني)
+        function extractMFCC(channelData, sampleRate) {
+            const frameSize = 1024;
+            const hopSize = 512;
+            const numMelFilters = 26;
+            const numCoeffs = 13;
+
+            if (channelData.length < frameSize) return [];
+
+            const melFilters = createMelFilterbank(numMelFilters, frameSize, sampleRate);
+            const mfccFrames = [];
+
+            for (let start = 0; start + frameSize <= channelData.length; start += hopSize) {
+                const re = new Float64Array(frameSize);
+                const im = new Float64Array(frameSize);
+                for (let i = 0; i < frameSize; i++) re[i] = channelData[start + i] * hammingWindow(i, frameSize);
+                fft(re, im);
+
+                const powerSpec = new Float64Array(frameSize / 2 + 1);
+                for (let i = 0; i < powerSpec.length; i++) powerSpec[i] = (re[i] * re[i] + im[i] * im[i]) / frameSize;
+
+                const melEnergies = new Float64Array(numMelFilters);
+                for (let m = 0; m < numMelFilters; m++) {
                     let sum = 0;
-                    for (let j = 0; j < samplesPerBar; j++) {
-                        sum += Math.abs(trimmed[i * samplesPerBar + j] || 0);
-                    }
-                    waveform.push(sum / samplesPerBar);
+                    for (let k = 0; k < powerSpec.length; k++) sum += powerSpec[k] * melFilters[m][k];
+                    melEnergies[m] = Math.log(sum + 1e-10);
                 }
 
-                const maxVal = Math.max(...waveform) || 1;
-                audioCtx.close();
-                return waveform.map(v => v / maxVal);
-            } catch(e) {
-                return new Array(60).fill(0.1);
+                mfccFrames.push(dct(melEnergies, numCoeffs));
+            }
+            return mfccFrames;
+        }
+
+        // تطبيع المتوسط عبر الإطارات (Cepstral Mean Normalization) عشان يقلل أثر فرق الصوت/المايك
+        function normalizeMFCC(frames) {
+            if (frames.length === 0) return frames;
+            const numCoeffs = frames[0].length;
+            const means = new Float64Array(numCoeffs);
+            frames.forEach(f => { for (let i = 0; i < numCoeffs; i++) means[i] += f[i]; });
+            for (let i = 0; i < numCoeffs; i++) means[i] /= frames.length;
+            return frames.map(f => f.map((v, i) => v - means[i]));
+        }
+
+        function euclideanDist(a, b) {
+            let s = 0;
+            for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; s += d * d; }
+            return Math.sqrt(s);
+        }
+
+        // Dynamic Time Warping: بيحسب أفضل مطابقة زمنية بين تسلسلين حتى لو اختلف طولهم أو توقيتهم
+        function dtwDistance(seqA, seqB) {
+            const n = seqA.length, m = seqB.length;
+            if (n === 0 || m === 0) return Infinity;
+
+            let prev = new Float64Array(m + 1).fill(Infinity);
+            let curr = new Float64Array(m + 1).fill(Infinity);
+            prev[0] = 0;
+            let pathLenApprox = 0;
+
+            for (let i = 1; i <= n; i++) {
+                curr[0] = Infinity;
+                for (let j = 1; j <= m; j++) {
+                    const cost = euclideanDist(seqA[i - 1], seqB[j - 1]);
+                    curr[j] = cost + Math.min(prev[j], curr[j - 1], prev[j - 1]);
+                }
+                [prev, curr] = [curr, prev];
+            }
+            pathLenApprox = n + m;
+            return prev[m] / pathLenApprox;
+        }
+
+        // الدالة الرئيسية لتحليل ومقارنة الصوتين (المستهدف وتسجيل اللاعب) وإرجاع نسبة تطابق واقعية
+        async function analyzeAndMatchAudio(recordedBlob) {
+            try {
+                const activeList = window.selectedSoundsForGame || selectedSoundsForGame;
+                const currentSound = activeList[currentStageIndex];
+
+                const [targetDecoded, userDecoded] = await Promise.all([
+                    decodeAudioSource(currentSound.src),
+                    decodeAudioSource(recordedBlob)
+                ]);
+
+                // رسم الموجة البصرية (شكلي فقط، منفصل عن حساب النتيجة)
+                const userWaveformBars = computeWaveformBars(userDecoded.channelData);
+
+                // فحص عدم وجود صوت حقيقي عن طريق متوسط طاقة RMS للعينات الخام
+                let energySum = 0;
+                for (let i = 0; i < userDecoded.channelData.length; i++) energySum += userDecoded.channelData[i] * userDecoded.channelData[i];
+                const rms = Math.sqrt(energySum / Math.max(1, userDecoded.channelData.length));
+
+                if (rms < 0.006 || userDecoded.channelData.length < 512) {
+                    return { isNoSound: true, score: 0, userWaveform: userWaveformBars };
+                }
+
+                // استخراج بصمة MFCC الحقيقية للصوتين ومقارنتهم بـ DTW
+                const targetMFCC = normalizeMFCC(extractMFCC(targetDecoded.channelData, targetDecoded.sampleRate));
+                const userMFCC = normalizeMFCC(extractMFCC(userDecoded.channelData, userDecoded.sampleRate));
+
+                if (targetMFCC.length === 0 || userMFCC.length === 0) {
+                    return { isNoSound: false, score: 30, userWaveform: userWaveformBars };
+                }
+
+                const avgCost = dtwDistance(targetMFCC, userMFCC);
+
+                // تحويل "مسافة" DTW (كل ما قلت يبقى الصوتين أقرب لبعض) إلى نسبة مئوية 0-100
+                let score = 100 * Math.exp(-avgCost / 9);
+                score = Math.max(5, Math.min(99, Math.round(score)));
+
+                return { isNoSound: false, score, userWaveform: userWaveformBars };
+
+            } catch (e) {
+                console.warn("Audio matching analysis fallback:", e);
+                return { isNoSound: false, score: 50, userWaveform: [] };
             }
         }
 
@@ -1696,43 +1965,6 @@
                 ctx.beginPath();
                 ctx.roundRect(x + 1, y, Math.max(2, barWidth - 2), barHeight, 2);
                 ctx.fill();
-            }
-        }
-
-        // التعديل الثاني: خوارزمية مطابقة شكل شريط التردد بين المقطع المسجل والمقطع الأصلي بصرياً وتناسق أشكال التردد
-        async function analyzeAndMatchAudio(recordedBlob) {
-            try {
-                const activeList = window.selectedSoundsForGame || selectedSoundsForGame;
-                const currentSound = activeList[currentStageIndex];
-                
-                // استخراج شريطي التردد كشكلين هندسيين (Shape Envelopes)
-                const targetWaveform = await extractWaveformDataFromUrl(currentSound.src);
-                const userWaveform = await extractWaveformDataFromBlob(recordedBlob);
-
-                // فحص عدم التواجد الكامل للصوت
-                const userEnergy = userWaveform.reduce((a, b) => a + b, 0);
-                if (userEnergy < 1.5) {
-                    return { isNoSound: true, score: 0, userWaveform, targetWaveform };
-                }
-
-                // حساب مدى التطابق الشكلي (Visual/Shape Correlation) بين شريطي التردد
-                let shapeDifferenceSum = 0;
-                for (let i = 0; i < targetWaveform.length; i++) {
-                    const diff = Math.abs((targetWaveform[i] || 0) - (userWaveform[i] || 0));
-                    shapeDifferenceSum += diff;
-                }
-
-                const averageShapeDifference = shapeDifferenceSum / targetWaveform.length;
-
-                // تحويل الفارق الشكلي إلى نسبة مئوية للمطابقة
-                let visualMatchScore = Math.max(0, 100 - (averageShapeDifference * 110));
-                visualMatchScore = Math.max(10, Math.min(99, Math.round(visualMatchScore)));
-
-                return { isNoSound: false, score: visualMatchScore, userWaveform, targetWaveform };
-
-            } catch (e) {
-                console.warn("Waveform matching analysis fallback:", e);
-                return { isNoSound: false, score: 50, userWaveform: [], targetWaveform: [] };
             }
         }
 
@@ -1900,6 +2132,92 @@
         function toggleTheme() {
             const html = document.documentElement;
             html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+        }
+
+        // ============== ميزة إدارة أصوات اللعبة من داخل الموقع ==============
+        function openSoundsModal() {
+            document.getElementById('sounds-modal').style.display = 'flex';
+            window.renderCustomSoundsList();
+        }
+        function closeSoundsModal() {
+            document.getElementById('sounds-modal').style.display = 'none';
+        }
+
+        function handleSoundFileSelected(input) {
+            if (!input.files || !input.files[0]) return;
+            const file = input.files[0];
+
+            // تحذير بسيط لو الملف كبير جداً (تخزينه هيتم كـ base64 داخل قاعدة البيانات)
+            if (file.size > 1.5 * 1024 * 1024) {
+                alert(window.currentLang === 'ar' 
+                    ? "الملف كبير شوية، يفضل تستخدم مقطع صوتي قصير (أقل من 1.5 ميجا) عشان يترفع بسرعة." 
+                    : "File is a bit large, prefer a short clip under 1.5MB for faster upload.");
+            }
+
+            document.getElementById('selected-sound-filename').innerText = file.name;
+            const reader = new FileReader();
+            reader.onload = (e) => { pendingSoundFileBase64 = e.target.result; };
+            reader.readAsDataURL(file);
+        }
+
+        async function submitNewSound() {
+            const nameInput = document.getElementById('new-sound-name');
+            const name = nameInput.value.trim();
+
+            if (!name) {
+                alert(window.currentLang === 'ar' ? "اكتب اسم للمقطع الصوتي الأول!" : "Please enter a name for the sound first!");
+                return;
+            }
+            if (!pendingSoundFileBase64) {
+                alert(window.currentLang === 'ar' ? "اختار ملف صوتي الأول!" : "Please choose an audio file first!");
+                return;
+            }
+
+            document.getElementById('upload-progress-text').style.display = 'block';
+            try {
+                await window.addCustomSoundToFirebase(name, pendingSoundFileBase64);
+                nameInput.value = '';
+                pendingSoundFileBase64 = null;
+                document.getElementById('selected-sound-filename').innerText = '';
+                document.getElementById('new-sound-file').value = '';
+                alert(window.currentLang === 'ar' ? "تمت إضافة الصوت بنجاح! هيظهر في قائمة أصوات اللعبة للجميع." : "Sound added successfully! It will appear in the game's sound pool for everyone.");
+            } catch (e) {
+                alert(window.currentLang === 'ar' ? "حصل خطأ أثناء رفع الصوت، حاول تاني." : "An error occurred while uploading, please try again.");
+                console.error(e);
+            } finally {
+                document.getElementById('upload-progress-text').style.display = 'none';
+            }
+        }
+
+        window.renderCustomSoundsList = function() {
+            const container = document.getElementById('custom-sounds-list');
+            if (!container) return;
+            container.innerHTML = '';
+            const list = window.customSoundsList || [];
+            if (list.length === 0) {
+                container.innerHTML = `<div style="font-size:0.8rem; color:var(--text-secondary);">${window.currentLang==='ar' ? 'لسه مفيش أصوات مضافة من اللاعبين' : 'No player-added sounds yet'}</div>`;
+                return;
+            }
+            list.forEach(s => {
+                const canDelete = s.addedByDeviceId && s.addedByDeviceId === window.myDeviceId;
+                container.innerHTML += `
+                    <div class="sound-row">
+                        <div style="text-align:right;">
+                            <div>${s.name}</div>
+                            <div class="sound-meta">${window.currentLang==='ar' ? 'بواسطة' : 'by'}: ${s.addedBy || '-'}</div>
+                        </div>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <button class="add-friend-btn" onclick="new Audio('${s.src}').play()">▶</button>
+                            ${canDelete ? `<button class="action-btn-danger" onclick="deleteCustomSoundConfirm('${s.firebaseKey}')">🗑</button>` : ''}
+                        </div>
+                    </div>`;
+            });
+        };
+
+        function deleteCustomSoundConfirm(firebaseKey) {
+            if (confirm(window.currentLang === 'ar' ? "متأكد عايز تمسح الصوت ده؟" : "Are you sure you want to delete this sound?")) {
+                window.deleteCustomSoundFromFirebase(firebaseKey);
+            }
         }
     </script>
 </body>
