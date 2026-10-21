@@ -1288,8 +1288,7 @@
             { id: 11, name: "عبارة: Pay Attention ⚠️", src: "./originalvo-medieval-gamer-voice-pay-attention-228407.mp3" },
             { id: 12, name: "عبارة: Today Is Ours 🏆", src: "./originalvo-medieval-gamer-voice-the-day-is-ours-226579.mp3" },
             { id: 13, name: "صوت: Hostile Voice 😠", src: "./ribhavagrawal-hostile-detectedmale-voice-230543.mp3" },
-            { id: 14, name: "عبارة: Come On Man 🏃", src: "./universfield-come-on-man-325595.mp3" },
-            { id: 15, name: "صرخة: Scream 😱", src: "./universfield-male-falling-scream-278-44325.mp3" }
+            { id: 14, name: "عبارة: Come On Man 🏃", src: "./universfield-come-on-man-325595.mp3" }
         ];
 
         // القائمة الأساسية الثابتة (ملفات الموقع) منفصلة عن الأصوات المخصّصة القادمة من Firebase
@@ -2037,21 +2036,99 @@
             const n = seqA.length, m = seqB.length;
             if (n === 0 || m === 0) return Infinity;
 
+            // حزام Sakoe-Chiba: بيمنع المحاذاة من "تحايل" الخوارزمية بمطابقة شاذة بتقلل التكلفة
+            // بشكل مصطنع من غير ما يكون فيه تطابق زمني حقيقي بين الصوتين (مشكلة معروفة في DTW المفتوح)
+            const band = Math.max(8, Math.floor(Math.max(n, m) * 0.28));
+
             let prev = new Float64Array(m + 1).fill(Infinity);
             let curr = new Float64Array(m + 1).fill(Infinity);
             prev[0] = 0;
-            let pathLenApprox = 0;
 
             for (let i = 1; i <= n; i++) {
-                curr[0] = Infinity;
-                for (let j = 1; j <= m; j++) {
+                curr.fill(Infinity);
+                const jStart = Math.max(1, i - band);
+                const jEnd = Math.min(m, i + band);
+                for (let j = jStart; j <= jEnd; j++) {
                     const cost = cosineCost(seqA[i - 1], seqB[j - 1]);
                     curr[j] = cost + Math.min(prev[j], curr[j - 1], prev[j - 1]);
                 }
                 [prev, curr] = [curr, prev];
             }
-            pathLenApprox = n + m;
-            return prev[m] / pathLenApprox;
+            if (!isFinite(prev[m])) return 1; // مفيش مسار صالح جوه الحزام - اعتبرهم مختلفين تماماً
+            return prev[m] / (n + m);
+        }
+
+        // ============== تتبع النغمة (Pitch / F0) ==============
+        // دي بتقيس "ارتفاع وانخفاض نبرة الصوت" على مدار الوقت - وده أقرب حاجة لمعنى
+        // "تقليد الصوت" اللي بيحكم بيها الأذن البشرية، وMFCC لوحده بيركز على طابع/بصمة الصوت
+        // (timbre) أكتر من اللحن/النغمة نفسها.
+        function detectPitchAutocorr(frame, sampleRate, minFreq = 75, maxFreq = 400) {
+            const minLag = Math.floor(sampleRate / maxFreq);
+            const maxLag = Math.min(frame.length - 1, Math.floor(sampleRate / minFreq));
+            if (maxLag <= minLag) return 0;
+
+            let energy = 0;
+            for (let i = 0; i < frame.length; i++) energy += frame[i] * frame[i];
+            if (energy < 1e-6) return 0;
+
+            let bestLag = -1, bestCorr = 0;
+            for (let lag = minLag; lag <= maxLag; lag++) {
+                let corr = 0;
+                for (let i = 0; i < frame.length - lag; i++) corr += frame[i] * frame[i + lag];
+                if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
+            }
+            if (bestLag <= 0) return 0;
+
+            const normCorr = bestCorr / energy;
+            if (normCorr < 0.32) return 0; // مش واضح فيه نغمة ثابتة (نفس/ضوضاء/صمت)
+            return sampleRate / bestLag;
+        }
+
+        // استخراج منحنى النغمة (Hz) على مدار الإطارات الزمنية، وتصفية الإطارات الصامتة/الغير واضحة فيها نغمة
+        function extractPitchContour(channelData, sampleRate) {
+            const frameSize = 1024, hopSize = 512;
+            const pitches = [];
+            for (let start = 0; start + frameSize <= channelData.length; start += hopSize) {
+                const frame = channelData.subarray(start, start + frameSize);
+                const f0 = detectPitchAutocorr(frame, sampleRate);
+                if (f0 > 0) pitches.push(f0);
+            }
+            return pitches;
+        }
+
+        // تحويل الترددات لنصف-نغمات (semitones) نسبة لمتوسط نغمة الصوت نفسه، عشان نقارن "شكل" اللحن
+        // مش قيمته المطلقة (وده بيحل فرق نبرة الصوت الطبيعية بين لاعب وآخر، ذكر/أنثى، صوت غليظ/رفيع)
+        function pitchContourToSemitones(pitches) {
+            if (pitches.length === 0) return [];
+            const sorted = [...pitches].sort((a, b) => a - b);
+            const median = sorted[Math.floor(sorted.length / 2)];
+            if (!median) return [];
+            return pitches.map(f => 12 * Math.log2(f / median));
+        }
+
+        // DTW بسيط على تسلسل أرقام (مش متجهات)، مع سقف أقصى للفرق عشان يقاوم الأخطاء الشاذة
+        function dtw1D(seqA, seqB, maxDiff = 6) {
+            const n = seqA.length, m = seqB.length;
+            if (n === 0 || m === 0) return null;
+
+            const band = Math.max(5, Math.floor(Math.max(n, m) * 0.3));
+
+            let prev = new Float64Array(m + 1).fill(Infinity);
+            let curr = new Float64Array(m + 1).fill(Infinity);
+            prev[0] = 0;
+
+            for (let i = 1; i <= n; i++) {
+                curr.fill(Infinity);
+                const jStart = Math.max(1, i - band);
+                const jEnd = Math.min(m, i + band);
+                for (let j = jStart; j <= jEnd; j++) {
+                    const cost = Math.min(maxDiff, Math.abs(seqA[i - 1] - seqB[j - 1])) / maxDiff;
+                    curr[j] = cost + Math.min(prev[j], curr[j - 1], prev[j - 1]);
+                }
+                [prev, curr] = [curr, prev];
+            }
+            if (!isFinite(prev[m])) return 1;
+            return prev[m] / (n + m);
         }
 
         // الدالة الرئيسية لتحليل ومقارنة الصوتين (المستهدف وتسجيل اللاعب) وإرجاع نسبة تطابق واقعية
@@ -2060,10 +2137,26 @@
                 const activeList = window.selectedSoundsForGame || selectedSoundsForGame;
                 const currentSound = activeList[currentStageIndex];
 
-                const [targetDecoded, userDecoded] = await Promise.all([
-                    decodeAudioSource(currentSound.src),
-                    decodeAudioSource(recordedBlob)
-                ]);
+                // بنفك تشفير كل صوت على حدة (مش بالتوازي) عشان لو حصل خطأ نعرف بالظبط مين سبب المشكلة:
+                // الصوت الأصلي (غالباً ملف mp3 مش موجود فعلياً على مكان الاستضافة) ولا تسجيل اللاعب.
+                let targetDecoded;
+                try {
+                    targetDecoded = await decodeAudioSource(currentSound.src);
+                } catch (targetErr) {
+                    console.error("تعذر تحميل/فك تشفير الصوت الأصلي:", currentSound.src, targetErr);
+                    alert(window.currentLang === 'ar'
+                        ? `تعذر تحميل ملف الصوت الأصلي "${currentSound.name}" (${currentSound.src}). تأكد إن ملف الـ mp3 ده مرفوع فعلاً بجانب index.html على نفس مكان استضافة الموقع، وإلا المقارنة مستحيل تكون دقيقة.`
+                        : `Could not load the target sound file "${currentSound.name}" (${currentSound.src}). Make sure that mp3 file is actually uploaded next to index.html on your hosting, otherwise matching can never be accurate.`);
+                    throw targetErr;
+                }
+
+                let userDecoded;
+                try {
+                    userDecoded = await decodeAudioSource(recordedBlob);
+                } catch (userErr) {
+                    console.error("تعذر فك تشفير تسجيل اللاعب:", userErr);
+                    throw userErr;
+                }
 
                 // رسم الموجة البصرية (شكلي فقط، منفصل عن حساب النتيجة)
                 const userWaveformBars = computeWaveformBars(userDecoded.channelData);
@@ -2089,8 +2182,27 @@
 
                 // تحويل تكلفة DTW (0 = تطابق كامل في الاتجاه، ~1 = مفيش علاقة بين الصوتين) إلى نسبة مئوية
                 // avgCost هنا مرتبط بالشكل الفعلي للصوت مش بمستوى الصوت، فالنطاق بقى منطقي (0 لـ ~1.2 تقريباً)
-                let score = 100 * (1 - avgCost);
-                score = Math.max(2, Math.min(99, Math.round(score)));
+                const spectralScore = Math.max(0, Math.min(100, 100 * (1 - avgCost)));
+
+                // استخراج منحنى النغمة (ارتفاع/انخفاض الصوت) ومقارنته - ده اللي بيحدد هل اللاعب
+                // "قلّد" نبرة الصوت فعلاً، مش بس قال نفس الكلمة بنبرة مختلفة
+                const targetPitchContour = pitchContourToSemitones(extractPitchContour(targetDecoded.channelData, targetDecoded.sampleRate));
+                const userPitchContour = pitchContourToSemitones(extractPitchContour(userDecoded.channelData, userDecoded.sampleRate));
+
+                let finalScore;
+                const pitchCost = dtw1D(targetPitchContour, userPitchContour);
+
+                if (pitchCost === null || targetPitchContour.length < 3 || userPitchContour.length < 3) {
+                    // صوت مفيهوش نغمة واضحة (زي التنهيدة أو الهمهمة) - نعتمد على شكل الصوت بس
+                    finalScore = spectralScore;
+                } else {
+                    const pitchScore = Math.max(0, Math.min(100, 100 * (1 - pitchCost)));
+                    // 55% شكل/بصمة الصوت (timbre) + 45% نغمة ولحن الصوت (pitch/tone) - الاتنين مع بعض
+                    // بيعكسوا "التقليد" الحقيقي أحسن من أي واحد لوحده
+                    finalScore = (spectralScore * 0.55) + (pitchScore * 0.45);
+                }
+
+                const score = Math.max(0, Math.min(100, Math.round(finalScore)));
 
                 return { isNoSound: false, score, userWaveform: userWaveformBars };
 
