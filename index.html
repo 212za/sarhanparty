@@ -40,10 +40,56 @@
             flex-direction: column;
             align-items: center;
             justify-content: flex-start;
-            background-image: radial-gradient(circle at 10% 20%, rgba(139, 92, 246, 0.15) 0%, transparent 20%),
-                              radial-gradient(circle at 90% 80%, rgba(99, 102, 241, 0.15) 0%, transparent 20%);
             overflow-x: hidden;
             padding-bottom: 30px;
+            position: relative;
+        }
+
+        /* خلفية متحركة: فقاعات ضوئية ضبابية بتتحرك ببطء خلف محتوى الموقع */
+        .animated-bg-blob {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(110px);
+            z-index: -1;
+            pointer-events: none;
+            opacity: 0.55;
+        }
+        .animated-bg-blob.blob-1 {
+            width: 420px; height: 420px;
+            background: #8b5cf6;
+            top: -120px; left: -100px;
+            animation: floatBlob1 20s ease-in-out infinite alternate;
+        }
+        .animated-bg-blob.blob-2 {
+            width: 380px; height: 380px;
+            background: #6366f1;
+            bottom: -150px; right: -80px;
+            animation: floatBlob2 24s ease-in-out infinite alternate;
+        }
+        .animated-bg-blob.blob-3 {
+            width: 300px; height: 300px;
+            background: #f59e0b;
+            top: 40%; left: 50%;
+            opacity: 0.22;
+            animation: floatBlob3 28s ease-in-out infinite alternate;
+        }
+        @keyframes floatBlob1 {
+            0%   { transform: translate(0, 0) scale(1); }
+            50%  { transform: translate(140px, 100px) scale(1.25); }
+            100% { transform: translate(-50px, 180px) scale(0.9); }
+        }
+        @keyframes floatBlob2 {
+            0%   { transform: translate(0, 0) scale(1); }
+            50%  { transform: translate(-120px, -70px) scale(1.2); }
+            100% { transform: translate(90px, -140px) scale(0.95); }
+        }
+        @keyframes floatBlob3 {
+            0%   { transform: translate(-50%, -50%) scale(1); }
+            50%  { transform: translate(-30%, -60%) scale(1.3); }
+            100% { transform: translate(-65%, -40%) scale(0.85); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .animated-bg-blob { animation: none !important; }
         }
 
         .top-bar { 
@@ -385,6 +431,9 @@
     </style>
 </head>
 <body>
+    <div class="animated-bg-blob blob-1"></div>
+    <div class="animated-bg-blob blob-2"></div>
+    <div class="animated-bg-blob blob-3"></div>
 
     <div class="top-bar">
         <div class="logo">
@@ -624,18 +673,23 @@
             <h3 style="color: var(--accent-color); margin-bottom: 10px;"><i class="fa-solid fa-music"></i> <span data-key="sounds_title">أصوات اللعبة</span></h3>
             <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 10px;" data-key="sounds_desc">ارفع أي مقطع صوتي قصير مباشرة من هنا، وهيتضاف لقائمة أصوات اللعبة للجميع فوراً.</p>
 
-            <div class="form-group">
-                <input type="text" id="new-sound-name" placeholder="اسم المقطع الصوتي..." style="font-size: 0.9rem;">
-            </div>
-            <div class="sound-upload-box" onclick="document.getElementById('new-sound-file').click()">
-                <i class="fa-solid fa-file-audio"></i>
-                <span data-key="upload_sound_prompt">اضغط لاختيار ملف صوتي (mp3/wav)</span>
-                <input type="file" id="new-sound-file" accept="audio/*" style="display:none;" onchange="handleSoundFileSelected(this)">
-            </div>
-            <div id="selected-sound-filename" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px;"></div>
-            <div id="upload-progress-text" class="upload-progress-text" data-key="uploading_sound">جاري الرفع...</div>
+            <!-- حالة تسجيل الدخول بجوجل: إضافة الأصوات مقصورة على حساب المسؤول فقط -->
+            <div id="sounds-auth-box" style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px; margin-bottom: 12px; font-size: 0.8rem;"></div>
 
-            <button class="btn-primary" style="margin-top: 10px;" onclick="submitNewSound()" data-key="btn_upload_sound">إضافة الصوت للعبة</button>
+            <div id="sound-upload-section" style="display:none;">
+                <div class="form-group">
+                    <input type="text" id="new-sound-name" placeholder="اسم المقطع الصوتي..." style="font-size: 0.9rem;">
+                </div>
+                <div class="sound-upload-box" onclick="document.getElementById('new-sound-file').click()">
+                    <i class="fa-solid fa-file-audio"></i>
+                    <span data-key="upload_sound_prompt">اضغط لاختيار ملف صوتي (mp3/wav)</span>
+                    <input type="file" id="new-sound-file" accept="audio/*" style="display:none;" onchange="handleSoundFileSelected(this)">
+                </div>
+                <div id="selected-sound-filename" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px;"></div>
+                <div id="upload-progress-text" class="upload-progress-text" data-key="uploading_sound">جاري الرفع...</div>
+
+                <button class="btn-primary" style="margin-top: 10px;" onclick="submitNewSound()" data-key="btn_upload_sound">إضافة الصوت للعبة</button>
+            </div>
 
             <div style="border-top: 1px solid var(--border-color); margin-top: 15px; padding-top: 10px;">
                 <div style="font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; text-align: right;" data-key="custom_sounds_label">الأصوات المضافة من اللاعبين:</div>
@@ -648,7 +702,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getDatabase, ref, set, update, onValue, get, push, onDisconnect, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
         const firebaseConfig = {
@@ -667,6 +721,54 @@
 
         let userUID = null;
         signInAnonymously(auth).then((res) => { userUID = res.user.uid; });
+
+        // ==== تسجيل دخول جوجل: مقصور على حساب واحد بس هو المسموح له يضيف أصوات جديدة ====
+        const ADMIN_EMAIL = "salaheldeen982@gmail.com";
+        const googleProvider = new GoogleAuthProvider();
+        window.isAdminUser = false;
+        window.adminUserEmail = null;
+
+        window.signInWithGoogleAdmin = async function() {
+            try {
+                const result = await signInWithPopup(auth, googleProvider);
+                const email = result.user.email;
+                if (email === ADMIN_EMAIL) {
+                    window.isAdminUser = true;
+                    window.adminUserEmail = email;
+                } else {
+                    window.isAdminUser = false;
+                    window.adminUserEmail = email;
+                    alert(window.currentLang === 'ar'
+                        ? "تم تسجيل الدخول، لكن هذا الحساب غير مصرح له بإضافة أصوات جديدة."
+                        : "Signed in, but this account is not authorized to add new sounds.");
+                }
+            } catch (e) {
+                console.warn("Google sign-in error:", e);
+                alert(window.currentLang === 'ar' ? "حصل خطأ أثناء تسجيل الدخول بجوجل." : "Google sign-in failed.");
+            }
+            if (window.renderSoundsAuthUI) window.renderSoundsAuthUI();
+        };
+
+        window.signOutGoogleAdmin = async function() {
+            try { await signOut(auth); } catch(e) {}
+            window.isAdminUser = false;
+            window.adminUserEmail = null;
+            if (window.renderSoundsAuthUI) window.renderSoundsAuthUI();
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            if (user && user.email === ADMIN_EMAIL) {
+                window.isAdminUser = true;
+                window.adminUserEmail = user.email;
+            } else if (user && user.email) {
+                window.isAdminUser = false;
+                window.adminUserEmail = user.email;
+            } else {
+                window.isAdminUser = false;
+                window.adminUserEmail = null;
+            }
+            if (window.renderSoundsAuthUI) window.renderSoundsAuthUI();
+        });
 
         // توليد ID رقمي عالي الدقة (أرقام فقط) لجميع الأجهزة
         let deviceId = localStorage.getItem('sarhan_party_device_id');
@@ -2137,8 +2239,37 @@
         // ============== ميزة إدارة أصوات اللعبة من داخل الموقع ==============
         function openSoundsModal() {
             document.getElementById('sounds-modal').style.display = 'flex';
+            window.renderSoundsAuthUI();
             window.renderCustomSoundsList();
         }
+
+        // عرض حالة تسجيل الدخول بجوجل، وإظهار/إخفاء قسم رفع الصوت حسب الصلاحية
+        window.renderSoundsAuthUI = function() {
+            const box = document.getElementById('sounds-auth-box');
+            const uploadSection = document.getElementById('sound-upload-section');
+            if (!box || !uploadSection) return;
+            const ar = window.currentLang === 'ar';
+
+            if (window.isAdminUser) {
+                box.innerHTML = `
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                        <div style="color:#10b981; font-weight:bold;"><i class="fa-solid fa-circle-check"></i> ${ar ? 'مسجل الدخول كمسؤول: ' : 'Logged in as admin: '}${window.adminUserEmail}</div>
+                        <button class="action-btn-danger" onclick="signOutGoogleAdmin()">${ar ? 'خروج' : 'Logout'}</button>
+                    </div>`;
+                uploadSection.style.display = 'block';
+            } else {
+                box.innerHTML = `
+                    <div style="text-align:center;">
+                        <div style="color: var(--text-secondary); margin-bottom: 8px;">
+                            ${ar ? 'إضافة أصوات جديدة متاحة فقط لحساب مسؤول اللعبة.' : 'Adding new sounds is restricted to the game admin account.'}
+                        </div>
+                        <button class="btn-primary" style="margin-top:0;" onclick="signInWithGoogleAdmin()">
+                            <i class="fa-brands fa-google"></i> ${ar ? 'تسجيل الدخول بجوجل' : 'Sign in with Google'}
+                        </button>
+                    </div>`;
+                uploadSection.style.display = 'none';
+            }
+        };
         function closeSoundsModal() {
             document.getElementById('sounds-modal').style.display = 'none';
         }
@@ -2161,6 +2292,11 @@
         }
 
         async function submitNewSound() {
+            if (!window.isAdminUser) {
+                alert(window.currentLang === 'ar' ? "إضافة الأصوات متاحة فقط لحساب مسؤول اللعبة." : "Adding sounds is restricted to the admin account.");
+                window.renderSoundsAuthUI();
+                return;
+            }
             const nameInput = document.getElementById('new-sound-name');
             const name = nameInput.value.trim();
 
