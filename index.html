@@ -1998,20 +1998,38 @@
             return mfccFrames;
         }
 
-        // تطبيع المتوسط عبر الإطارات (Cepstral Mean Normalization) عشان يقلل أثر فرق الصوت/المايك
+        // تطبيع المعاملات (Cepstral Mean & Variance Normalization) + استبعاد المعامل الأول (c0)
+        // c0 بيمثل "الطاقة الكلية" للصوت (يعني مستوى الصوت العالي/الواطي) مش شكله الفعلي،
+        // فلو سبناه كان بيطغى على باقي المعاملات ويخلي أي فرق بسيط في مستوى المايك يفسد المقارنة كلها.
         function normalizeMFCC(frames) {
             if (frames.length === 0) return frames;
             const numCoeffs = frames[0].length;
+            const startIdx = numCoeffs > 1 ? 1 : 0; // تجاهل c0 لو متاح
+
             const means = new Float64Array(numCoeffs);
-            frames.forEach(f => { for (let i = 0; i < numCoeffs; i++) means[i] += f[i]; });
-            for (let i = 0; i < numCoeffs; i++) means[i] /= frames.length;
-            return frames.map(f => f.map((v, i) => v - means[i]));
+            frames.forEach(f => { for (let i = startIdx; i < numCoeffs; i++) means[i] += f[i]; });
+            for (let i = startIdx; i < numCoeffs; i++) means[i] /= frames.length;
+
+            const stds = new Float64Array(numCoeffs);
+            frames.forEach(f => { for (let i = startIdx; i < numCoeffs; i++) { const d = f[i] - means[i]; stds[i] += d * d; } });
+            for (let i = startIdx; i < numCoeffs; i++) stds[i] = Math.sqrt(stds[i] / frames.length) || 1;
+
+            return frames.map(f => {
+                const out = [];
+                for (let i = startIdx; i < numCoeffs; i++) out.push((f[i] - means[i]) / stds[i]);
+                return out;
+            });
         }
 
-        function euclideanDist(a, b) {
-            let s = 0;
-            for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; s += d * d; }
-            return Math.sqrt(s);
+        // تكلفة التشابه الاتجاهي بين متجهين (Cosine Distance) - أكتر مقاومة لفروق مستوى الصوت/المايك
+        // من الفرق العددي المباشر (Euclidean)، لأنها بتقارن "شكل" المتجه مش حجمه.
+        // النتيجة: 0 = نفس الاتجاه تماماً (تطابق كامل)، 1 = متعامدين (مفيش علاقة)، 2 = اتجاه معاكس.
+        function cosineCost(a, b) {
+            let dot = 0, na = 0, nb = 0;
+            for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+            if (na === 0 || nb === 0) return 1;
+            const cos = dot / (Math.sqrt(na) * Math.sqrt(nb));
+            return 1 - Math.max(-1, Math.min(1, cos));
         }
 
         // Dynamic Time Warping: بيحسب أفضل مطابقة زمنية بين تسلسلين حتى لو اختلف طولهم أو توقيتهم
@@ -2027,7 +2045,7 @@
             for (let i = 1; i <= n; i++) {
                 curr[0] = Infinity;
                 for (let j = 1; j <= m; j++) {
-                    const cost = euclideanDist(seqA[i - 1], seqB[j - 1]);
+                    const cost = cosineCost(seqA[i - 1], seqB[j - 1]);
                     curr[j] = cost + Math.min(prev[j], curr[j - 1], prev[j - 1]);
                 }
                 [prev, curr] = [curr, prev];
@@ -2069,9 +2087,10 @@
 
                 const avgCost = dtwDistance(targetMFCC, userMFCC);
 
-                // تحويل "مسافة" DTW (كل ما قلت يبقى الصوتين أقرب لبعض) إلى نسبة مئوية 0-100
-                let score = 100 * Math.exp(-avgCost / 9);
-                score = Math.max(5, Math.min(99, Math.round(score)));
+                // تحويل تكلفة DTW (0 = تطابق كامل في الاتجاه، ~1 = مفيش علاقة بين الصوتين) إلى نسبة مئوية
+                // avgCost هنا مرتبط بالشكل الفعلي للصوت مش بمستوى الصوت، فالنطاق بقى منطقي (0 لـ ~1.2 تقريباً)
+                let score = 100 * (1 - avgCost);
+                score = Math.max(2, Math.min(99, Math.round(score)));
 
                 return { isNoSound: false, score, userWaveform: userWaveformBars };
 
